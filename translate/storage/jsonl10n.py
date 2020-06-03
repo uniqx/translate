@@ -442,6 +442,51 @@ class GoI18nJsonUnit(JsonUnit):
     #        ret = {k: ret}
     #    return ret
 
+    @property
+    def target(self):
+        return self._target
+
+    @target.setter
+    def target(self, target):
+        def get_base(item):
+            """Return base name for plurals"""
+            if '_0' in item[0]:
+                return item[0][:-2]
+            else:
+                return item[0]
+
+        def get_plurals(count, base):
+            if count <= 2:
+                return [base, base + '_plural'][:count]
+            return ['{0}_{1}'.format(base, i) for i in range(count)]
+
+        if isinstance(target, multistring):
+            count = len(target.strings)
+            if not isinstance(self._item, list):
+                self._item = [self._item]
+            if count != len(self._item):
+                # Generate new plural labels
+                self._item = get_plurals(count, get_base(self._item))
+        elif isinstance(self._item, list):
+            # Changing plural to singular
+            self._item = get_base(self._item)
+
+        self._rich_target = None
+        self._target = target
+
+    def getvalue(self):
+        if not isinstance(self.target, multistring):
+            return super().getvalue()
+
+        ret = OrderedDict()
+        for i, value in enumerate(self.target.strings):
+            ret[self._item[i]] = value
+
+        path = self.getid().lstrip('.').split('.')[:-1]
+        for k in reversed(path):
+            ret = {k: ret}
+        return ret
+
 
 class GoI18nJsonFile(JsonFile):
     """A go-i18n json v3 format, this is nested JSON with additions.
@@ -452,21 +497,28 @@ class GoI18nJsonFile(JsonFile):
     UnitClass = GoI18nJsonUnit
 
     def _extract_units(self, data, stop=None, prev="", name_node=None, name_last_node=None, last_node=None):
-        # print('data:', data)
-        # print('data.keys():', data.keys() if isinstance(data, dict) else 'N/A')
-        # print('stop:', stop)
-        # print('prev:', prev)
-        # print('name_node:', name_node)
-        # print('name_last_node:', name_last_node)
-        # print('last_node:', last_node)
-        if isinstance(data, dict) and [x for x in data.keys()] == ['other']:
-            unit = self.UnitClass(multistring([data['other']]), ['other'])
-            unit.setid(prev)
-            yield unit
-        elif isinstance(data, dict) and len(data.keys()) == 2 and sorted(data.keys()) == ['one', 'other']:
-            unit = self.UnitClass(multistring([data['one'], data['other']]), ['one', 'other'])
-            unit.setid(prev)
-            yield unit
+        if isinstance(data, dict):
+            only_known_keys = all([x.lower() in ['id', 'zero', 'one', 'two', 'few', 'many', 'other', 'description'] for x in data.keys()])
+            if only_known_keys:
+                trans_data = []
+                trans_keys = []
+                for trans_key in ['zero', 'one', 'two', 'few', 'many', 'other']:
+                    if trans_key in data.keys():
+                        trans_data.append(data[trans_key])
+                        trans_keys.append(trans_key)
+                unit = self.UnitClass(multistring(trans_data), trans_keys)
+                if "id" in data.keys():
+                    unit.setid(data["id"])
+                else:
+                    unit.setid(prev)
+                if not unit.getid().startswith("."):
+                    unit.setid("." + unit.getid())
+                if "description" in data.keys():
+                    unit.addnote(data["description"])
+                yield unit
+            else:
+                for x in super()._extract_units(data, stop, prev, name_node, name_last_node, last_node):
+                    yield x
         else:
             for x in super()._extract_units(data, stop, prev, name_node, name_last_node, last_node):
                 yield x

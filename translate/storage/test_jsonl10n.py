@@ -4,6 +4,7 @@ from io import BytesIO
 from pytest import raises
 from translate.misc.multistring import multistring
 from translate.storage import base, jsonl10n, test_monolingual
+from textwrap import dedent
 
 
 JSON_I18NEXT = b"""{
@@ -40,12 +41,24 @@ JSON_ARRAY = b"""{
 """
 JSON_GOI18N = b"""{
     "key": "simple value",
-    "keyPlural1": {
-        "other": "Plural for {{.Person}}"
+    "keyWithId": {
+        "id": "plural-plus-id-123",
+        "other": "Value for {{.Person}}"
     },
-    "keyPluralN": {
-        "one":  "I have {{.Count}} item.",
-        "other":  "I have {{.Count}} items."
+    "keyPluralOneOther": {
+        "one": "I have {{.Count}} item.",
+        "other": "I have {{.Count}} items."
+    },
+    "keyPluralMany": {
+        "zero": "zeroth",
+        "one": "first",
+        "two": "second",
+        "few": "least",
+        "many": "most"
+    },
+    "keyWithNote": {
+        "description": "This is a unit with a note.",
+        "other": "value with a note"
     }
 }
 """
@@ -227,7 +240,14 @@ class TestI18NextStore(test_monolingual.TestMonolingualStore):
         out = BytesIO()
         store.serialize(out)
 
+        print('dir(store):', dir(store))
+        print('store.units:', store.units)
+        print('store.units[0]:', store.units[0])
+        print('store.units[0]._id:', store.units[0]._id)
+        print('store.units[0]._item:', store.units[0]._item)
+
         assert out.getvalue() == JSON_I18NEXT
+        # assert False
 
     def test_units(self):
         store = self.StoreClass()
@@ -306,7 +326,7 @@ class TestI18NextStore(test_monolingual.TestMonolingualStore):
         assert out.getvalue() == EXPECTED
 
 
-class TestI18NextStore(test_monolingual.TestMonolingualStore):
+class TestGoI18nJsonStore(test_monolingual.TestMonolingualStore):
     StoreClass = jsonl10n.GoI18nJsonFile
 
     #def test_serialize(self):
@@ -322,13 +342,67 @@ class TestI18NextStore(test_monolingual.TestMonolingualStore):
         store.parse(JSON_GOI18N)
         assert [x.getid() for x in store.units] == [
             '.key',
-            '.keyPlural1',
-            '.keyPluralN',
+            '.plural-plus-id-123',
+            '.keyPluralOneOther',
+            '.keyPluralMany',
+            '.keyWithNote',
+        ]
+        assert [x.getkey() for x in store.units] == [
+            'key',
+            'plural-plus-id-123',
+            'keyPluralOneOther',
+            'keyPluralMany',
+            'keyWithNote',
         ]
 
-    # def test_plurals(self):
-    #     store = self.StoreClass()
-    #     store.parse(JSON_GOI18N)
+    def test_plurals(self):
+        store = self.StoreClass()
+        store.parse(JSON_GOI18N)
+
+        assert store.units[0].target == "simple value"
+        assert store.units[1].target == "Value for {{.Person}}"
+        assert store.units[2].target == multistring([
+            "I have {{.Count}} item.",
+            "I have {{.Count}} items.",
+        ])
+        assert store.units[3].target == multistring([
+            "zeroth",
+            "first",
+            "second",
+            "least",
+            "most",
+        ])
+        assert store.units[4].target == "value with a note"
+
+    def test_notes(self):
+        store = self.StoreClass()
+        store.parse(JSON_GOI18N)
+
+        assert store.units[4].target == "value with a note"
+        assert store.units[4].getnotes() == "This is a unit with a note."
+
+    def test_simple_serialize(self):
+        EXPECTED = dedent('''\
+        {
+            "some": "value"
+        }
+        ''')
+
+        store = self.StoreClass()
+        unit = self.StoreClass.UnitClass(
+            'some', 'value'
+        )
+        print('_id:', unit._id)
+        print('_item:', unit._item)
+        print('_target:', unit._target)
+        print('target:', unit.target)
+        print('dir(unit):', dir(unit))
+        store.addunit(unit)
+
+        out = BytesIO()
+        store.serialize(out)
+
+        # assert out.getvalue().decode('utf-8') == EXPECTED
 
     #     # Remove plurals
     #     store.units[2].target = 'Ahoj'
