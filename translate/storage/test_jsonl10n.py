@@ -318,7 +318,15 @@ class TestGoI18NJsonFile(test_monolingual.TestMonolingualStore):
         store = self.StoreClass()
         store.parse(JSON_GOI18N)
 
-        assert len(store.units) == 2
+        for unit in store.units:
+            print(
+                '  * ',
+                "id=" + unit.getid(),
+                "key=" + unit.getkey(),
+                "value=" + str(unit.getvalue()),
+                "target=" + unit.target
+            )
+        assert len(store.units) == 999
         assert store.units[0].target == multistring(["{{.count}} tag", "{{.count}} tags"])
         assert store.units[1].target == "Table"
 

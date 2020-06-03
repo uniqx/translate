@@ -23,6 +23,7 @@ r"""Class that manages YAML data files for translation
 
 import uuid
 
+from collections import OrderedDict
 from ruamel.yaml import YAML, YAMLError
 from ruamel.yaml.comments import CommentedMap
 
@@ -187,6 +188,7 @@ class YAMLFile(base.TranslationStore):
         content = self.preprocess(self._original)
 
         for k, data in self._flatten(content):
+            print("k:", k, 'data:', data)
             unit = self.UnitClass(data)
             unit.setid(k)
             self.addunit(unit)
@@ -236,3 +238,67 @@ class RubyYAMLFile(YAMLFile):
         strings = strings[:len(tags)]
 
         return CommentedMap(zip(tags, strings))
+
+
+class Go18NYAMLUnit(YAMLUnit):
+    ID_FORMAT = "{}"
+
+    def getvalue(self):
+        target = self.target
+        if isinstance(target, multistring):
+            strings = list(target.strings)
+            if len(self._store.plural_tags) > len(target.strings):
+                strings += [""] * (len(self._store.plural_tags) - len(target.strings))
+            target = OrderedDict([
+                (plural, strings[offset]) for offset, plural in enumerate(self._store.plural_tags)
+            ])
+        value = OrderedDict((
+            ('id', self.getid()),
+        ))
+        if self.notes:
+            value['description'] = self.notes
+        value['translation'] = target
+        return value
+
+
+class GoI18NYAMLFile(YAMLFile):
+    """go-i18n YAML file
+
+    see following urls for doc:
+
+    https://github.com/nicksnyder/go-i18n
+    https://godoc.org/github.com/nicksnyder/go-i18n/v2
+    """
+
+    UnitClass = Go18NYAMLUnit
+
+    @property
+    def plural_tags(self):
+        locale = self.gettargetlanguage()
+        if locale:
+            locale = locale.replace('_', '-').split('-')[0]
+        else:
+            locale = "en"
+        return plural_tags.get(locale, plural_tags['en'])
+
+    def _extract_units(self, data, stop=None, prev="", name_node=None, name_last_node=None, last_node=None):
+        print('data:', data)
+        print('prev:', prev)
+        for value in data:
+            translation = value.get('translation', '')
+            if isinstance(translation, dict):
+                # Ordered list of plurals
+                translation = multistring(
+                    [translation.get(key) for key in cldr_plural_categories if key in translation]
+                )
+            unit = self.UnitClass(
+                translation,
+                value.get('id', ''),
+                value.get('description', ''),
+            )
+            unit.setid(value.get('id', ''))
+            yield unit
+
+    def serialize(self, out):
+        units = [unit.getvalue() for unit in self.units]
+        self.yaml.dump(units, out)
